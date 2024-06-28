@@ -1,6 +1,8 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { io } from 'socket.io-client';
 import Picker from 'emoji-picker-react';
+import { SERVER_URL } from './constants/AppConstants';
+import { compress , decompress} from './utils/MediaUtils';
 
 const ChatRoom = () => {
   const [roomName, setRoomName] = useState('');
@@ -12,7 +14,6 @@ const ChatRoom = () => {
   const [selectedFile, setSelectedFile] = useState(null);
   const messageListRef = useRef(null);
 
-  const SERVER_URL = "http://localhost:9090";
 
   // Function to join the chat room
   const joinRoom = () => {
@@ -77,33 +78,50 @@ const ChatRoom = () => {
   };
 
   // Function to handle file selection
-  const handleFileChange = (event) => {
+  const handleFileChange = async (event) => {
     const efile = event.target.files[0];
-    const reader = new FileReader();
-    reader.onload = () => {
-      const buffer = new Uint8Array(reader.result);
-      const file = {
-        fileName: efile.name,
-        fileType: efile.type,
-        data: Array.from(buffer)
-      };
-      setSelectedFile(file);  // Set file after reading
-    };
-    reader.readAsArrayBuffer(efile);
+    if (efile) {
+      // compress here
+      const compressedContent = await compress(efile);
+      if (compressedContent) {
+        const compressedContentInBlob = new Blob([compressedContent] , 
+          {
+            type : 'application/zip'
+          }
+        );
+        const reader = new FileReader();
+        reader.onload = () => {
+          const buffer = new Uint8Array(reader.result);
+          const file = {
+            fileName: efile.name,
+            fileType: efile.type,
+            data: Array.from(buffer)
+          };
+          setSelectedFile(file);  // Set file after reading
+        };
+        reader.readAsArrayBuffer(compressedContentInBlob);
+      }
+    }
   };
 
-  // Function to download file
-  const downloadFile = (file) => {
-    const blob = new Blob([new Uint8Array(file.data)], { type: file.fileType });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = file.fileName;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
+ // Function to download file
+const downloadFile = async (file) => {
+  // Decompress the file
+  const compressedData = new Uint8Array(file.data);
+  const decompressedBlob = await decompress(compressedData);
 
+  if (decompressedBlob) {
+      const url = URL.createObjectURL(decompressedBlob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = file.fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+  } else {
+      console.error("Decompression failed, file cannot be downloaded.");
+  }
+};
   // Scroll to bottom function
   const scrollToBottom = () => {
     if (messageListRef.current) {
@@ -156,9 +174,9 @@ const ChatRoom = () => {
                 <li
                   key={index}
                   className={`p-2 mb-1 text-sm ${msg.sender === socketId ? 'bg-green-200 self-end text-right' : 'bg-gray-200 self-start text-left'}`}
-                  style={{ 
-                    maxWidth: '70%', 
-                    marginLeft: msg.sender === socketId ? 'auto' : '0', 
+                  style={{
+                    maxWidth: '70%',
+                    marginLeft: msg.sender === socketId ? 'auto' : '0',
                     marginRight: msg.sender === socketId ? '0' : 'auto',
                     borderRadius: '20px',
                     padding: '10px 15px',
